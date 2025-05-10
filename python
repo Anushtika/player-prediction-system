@@ -1,0 +1,109 @@
+import pandas as pd
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import MinMaxScaler
+import numpy as np
+import matplotlib.pyplot as plt
+
+# Load the dataset (upload to Google Colab first or point to the correct path)
+# Specify the encoding as 'latin1' or 'ISO-8859-1' to handle the problematic characters
+df = pd.read_csv('/content/2021-2022 NBA Player Stats - Regular.csv', delimiter=';', encoding='latin1')
+# If 'latin1' doesn't work, try 'ISO-8859-1', 'cp1252' or other encodings.
+
+
+# Keep only relevant offensive and defensive metrics
+offensive_metrics = ['PTS', 'FG', '3P%', 'FT%', 'AST']
+defensive_metrics = ['DRB', 'STL', 'BLK', 'PF']
+
+# Subset dataset to keep the required metrics
+df = df[['Player', 'Pos'] + offensive_metrics + defensive_metrics]
+
+# Handle missing values (if any)
+df.fillna(0, inplace=True)
+
+# Scale data using MinMaxScaler
+scaler = MinMaxScaler()
+
+offense_scaled = scaler.fit_transform(df[offensive_metrics])
+defense_scaled = scaler.fit_transform(df[defensive_metrics])
+
+# Create a combined dataset for classification later
+combined_data = np.hstack([offense_scaled, defense_scaled])
+
+# Define a threshold to classify players as offensive or defensive
+# Example: More points, assists would indicate offensive; more rebounds, steals would indicate defensive.
+offense_threshold = 0.5  # Adjust based on your criteria
+defense_threshold = 0.5
+
+# Calculate offense and defense scores (sum of scaled metrics)
+df['offense_score'] = offense_scaled.sum(axis=1)
+df['defense_score'] = defense_scaled.sum(axis=1)
+
+# Classify players: 1 for Offensive, 0 for Defensive
+df['classification'] = np.where(df['offense_score'] >= offense_threshold, 1, 0)
+
+# Split data for training
+X = combined_data
+y = df['classification']
+
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+# Reshape data for RNN
+X_train = X_train.reshape((X_train.shape[0], 1, X_train.shape[1]))
+X_test = X_test.reshape((X_test.shape[0], 1, X_test.shape[1]))
+
+import tensorflow as tf
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import SimpleRNN, Dense
+
+# Build the RNN model
+model = Sequential()
+model.add(SimpleRNN(50, activation='relu', input_shape=(1, X_train.shape[2])))
+model.add(Dense(1, activation='sigmoid'))
+
+# Compile the model
+model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+
+# Train the model
+history = model.fit(X_train, y_train, epochs=20, batch_size=16, validation_data=(X_test, y_test))
+
+# Evaluate the model
+loss, accuracy = model.evaluate(X_test, y_test)
+print(f"Test Loss: {loss}")
+print(f"Test Accuracy: {accuracy}")
+
+# Plot training history
+plt.plot(history.history['accuracy'], label='train accuracy')
+plt.plot(history.history['val_accuracy'], label='validation accuracy')
+plt.title('Model Accuracy')
+plt.ylabel('Accuracy')
+plt.xlabel('Epoch')
+plt.legend()
+plt.show()
+
+plt.plot(history.history['loss'], label='train loss')
+plt.plot(history.history['val_loss'], label='validation loss')
+plt.title('Model Loss')
+plt.ylabel('Loss')
+plt.xlabel('Epoch')
+plt.legend()
+plt.show()
+
+# Top 10 offensive players
+top_offensive_players = df[['Player', 'offense_score']].sort_values(by='offense_score', ascending=False).head(10)
+
+# Top 10 defensive players
+top_defensive_players = df[['Player', 'defense_score']].sort_values(by='defense_score', ascending=False).head(10)
+
+# Plot offensive and defensive players
+plt.figure(figsize=(10, 5))
+plt.bar(top_offensive_players['Player'], top_offensive_players['offense_score'], color='blue')
+plt.title('Top 10 Offensive Players')
+plt.xticks(rotation=90)
+plt.show()
+
+plt.figure(figsize=(10, 5))
+plt.bar(top_defensive_players['Player'], top_defensive_players['defense_score'], color='green')
+plt.title('Top 10 Defensive Players')
+plt.xticks(rotation=90)
+plt.show()
+
